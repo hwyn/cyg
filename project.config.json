@@ -1,0 +1,25 @@
+{
+  "root": ".",
+  "sourceRoot": "src",
+  "outputRoot": "dist",
+  "architect": {
+    "platform":{
+      "server": {
+        "build": {
+          "outputPath": "./",
+          "options": {
+            "entry": "application.ts",
+            "assets": [ "resources" ],
+            "tsConfig": "tsconfig.json"
+          }
+        },
+        "development": {
+          "configurations": {
+            "hotContext": "server.context.js",
+            "watchFile": [ "src" ]
+          }
+        }
+      }
+    }
+  }
+}
