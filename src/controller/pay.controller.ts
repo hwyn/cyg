@@ -6,8 +6,9 @@ import fetch from 'node-fetch';
 
 @Controller()
 export class PayScript {
+  private mapping: Map<string, number> = new Map();
   private host = 'cyg.changyou.com';
-  private cookies = 'CU=F4A174C0C0B84930B490ECE30486EADA; tgw_l7_route=c930580e76325087a11ef04faf5cb53a; _sm_au_c=kuOIXAKfcI1594JBZB9JRkRnMBTzcKz0w4dWuz45c+p8gAAAA06ZrP7VD1kFij90rZ1KO8u4Vevn+cycELbGHMD7UUwI=; qrcodeid=5a8a8ce21927eac799cb84e734085d77d606f917e3ddb9f76f0de46977347e963b87d662ca0ebee571e6168eb274b363';
+  private cookies = '_sm_au_c=kuOIXANohoN4isJg2fWLPRmO2vQTFNC1JWPUnMpnHQwEgAAAAJrkxT9S5FIov1RvxM9fOS/TE2pMymEfclkQEiYXxEUs=; tgw_l7_route=a72926ba9d9770dd11d969aaa068c563; qrcodeid=719921aa4808b5b94963bce5fe883dfaa590782f8b861fb606936cc82a88843e3087dcb03e1bb6c12a2879b68b30037a; CU=F161C240866C473DA47A2C29D0D67BC0';
 
   private getHeaders(goodsCode: string) {
     return {
@@ -70,11 +71,19 @@ export class PayScript {
     return new Promise((resolve) => setInterval(() => new Date().getTime() >= endDate && resolve(null), 10));
   }
 
-  private async callPay(goodsCode: string, remain: number) {
-    console.log('pay order time', new Date(new Date().getTime() + remain).toLocaleTimeString());
-    remain > 30000 && await this.getGoodsHtml(goodsCode, 30000);
-    const html = await this.getGoodsHtml(goodsCode, 10000);
-    await this.pending(this.getGoodsInfo(html).remain);
+  private async callPay(goodsCode: string, { remain: _remain }: any, orderStatus: string) {
+    let remain = _remain;
+    if ('公示中' === orderStatus) {
+      console.log('pay order time', new Date(new Date().getTime() + _remain).toLocaleTimeString());
+      while (remain > 60000) {
+        remain = this.getGoodsInfo(await this.getGoodsHtml(goodsCode, remain > 180000 ? remain - 180000 : remain - 60000)).remain;
+        console.log(goodsCode, remain);
+      }
+      remain > 30000 && await this.getGoodsHtml(goodsCode, 30000);
+      const html = await this.getGoodsHtml(goodsCode, 10000);
+      await this.pending(this.getGoodsInfo(html).remain);
+    }
+
     // await this.stepFetch(`http://${this.host}/order/auth.json`, headers, goodsInfo);
     const headers = this.getHeaders(goodsCode);
     const body = this.getGoodsInfo(await this.getGoodsHtml(goodsCode));
@@ -89,7 +98,10 @@ export class PayScript {
   @Get('/pay/:goodsCode')
   async pay(@Params('goodsCode') goodsCode: string, @Res() res: Response) {
     const html = await this.getGoodsHtml(goodsCode);
-    this.callPay(goodsCode, this.getGoodsInfo(html).remain);
+    if (!this.mapping.has(goodsCode)) {
+      for (let i = 0; i < 10; i++) this.callPay(goodsCode, this.getGoodsInfo(html), this.getOrderStatus(html));
+      this.mapping.set(goodsCode, 10);
+    }
     res.end(html);
   }
 
