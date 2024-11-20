@@ -1,4 +1,4 @@
-import { ControllerModel } from '@fm/server';
+import { ControllerModel } from '@hwy-fm/server/controller';
 
 import { PayScript } from './pay.controller';
 

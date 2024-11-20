@@ -1,13 +1,5 @@
-import './controller';
+import { Application } from '@hwy-fm/server';
 
-import { Application } from '@fm/server';
-
-import { Metadata } from './providers';
-
-@Application(Metadata)
+@Application()
 export class ServerApplication {
-
-  public async start() {
-    // todo
-  }
 }

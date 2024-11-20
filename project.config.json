@@ -8,7 +8,10 @@
         "build": {
           "outputPath": "./",
           "options": {
-            "entry": "application.ts",
+            "entry": [
+              "controller/index.ts",
+              "application.ts"
+            ],
             "assets": [ "resources" ],
             "tsConfig": "tsconfig.json"
           }

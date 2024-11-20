@@ -1,14 +1,16 @@
 /* eslint-disable max-len */
-import { Controller, Get, Middleware, Params, Res } from '@fm/server';
-import { Response, Router } from 'express';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { Controller, Get, Params, Res } from '@hwy-fm/server/controller';
+import { HttpMiddleware } from '@hwy-fm/server/http-proxy';
+import { Response } from 'express';
 import fetch from 'node-fetch';
+import { ClientRequest } from 'http';
 
 @Controller()
 export class PayScript {
+  private latency: number = 100;
   private mapping: Map<string, number> = new Map();
   private host = 'cyg.changyou.com';
-  private cookies = '_sm_au_c=kuOIXANohoN4isJg2fWLPRmO2vQTFNC1JWPUnMpnHQwEgAAAAJrkxT9S5FIov1RvxM9fOS/TE2pMymEfclkQEiYXxEUs=; tgw_l7_route=a72926ba9d9770dd11d969aaa068c563; qrcodeid=719921aa4808b5b94963bce5fe883dfaa590782f8b861fb606936cc82a88843e3087dcb03e1bb6c12a2879b68b30037a; CU=F161C240866C473DA47A2C29D0D67BC0';
+  private cookies = 'tgw_l7_route=0b0ad2afaa54120d3415ba55e7eb31f5; qrcodeid=c9a092e940e01713916da19785be1eda07825e63e9d1c63fa3d49327c880c0e9d37b3eb8a69de9a7f2fc98beed527ed9; CU=E0DAED4C40844557930AC0D1676FC83F';
 
   private getHeaders(goodsCode: string) {
     return {
@@ -22,37 +24,38 @@ export class PayScript {
     };
   }
 
-  private getGoodsInfo(html: string) {
-    const _remain = html.replace(/[\s\S]*data-remain="([^"]+)"[\s\S]*/ig, '$1');
-    return {
-      qt: 1,
-      _remain,
-      remain: Number(_remain),
-      gc: html.replace(/[\s\S]*data-gc="([^"]+)"[\s\S]*/ig, '$1'),
-      pid: html.replace(/[\s\S]*data-platformid="([^"]+)"[\s\S]*/ig, '$1'),
-      gid: html.replace(/[\s\S]*data-gameid="([^"]+)"[\s\S]*/ig, '$1'),
-      tm: html.replace(/[\s\S]*data-trademode="([^"]+)"[\s\S]*/ig, '$1'),
-      gt: html.replace(/[\s\S]*data-gt="([^"]+)"[\s\S]*/ig, '$1'),
-      gi: html.replace(/[\s\S]*data-gi="([^"]+)"[\s\S]*/ig, '$1'),
-      formToken: html.replace(/[\s\S]*window.formToken = "([^"]+)"[\s\S]*/ig, '$1')
-    }
+  private exec(str: string, rex: RegExp): string {
+    return (rex.exec(str) || [])[0] || '';
   }
 
-  private getOrderStatus(html: string) {
-    return html.replace(/[\s\S]*class="goodsStatus">([^<]+)<[\s\S]*/ig, '$1');
+  private getGoodsInfo(html: string) {
+    const remain = Number(this.exec(html, /(?<=data-remain=")[^"]+/ig));
+    return {
+      qt: 1,
+      remain: isNaN(remain) ? 0 : remain - this.latency,
+      gc: this.exec(html, /(?<=data-gc=")[^"]+/ig),
+      pid: this.exec(html, /(?<=data-platformid=")[^"]+/ig),
+      gid: this.exec(html, /(?<=data-gameid=")[^"]+/ig),
+      tm: this.exec(html, /(?<=data-trademode=")[^"]+/ig),
+      gt: this.exec(html, /(?<=data-gt=")[^"]+/ig),
+      gi: this.exec(html, /(?<=data-gi=")[^"]+/ig),
+      formToken: this.exec(html, /(?<=window.formToken = ")[^"]+/ig),
+      orderStatus: this.exec(html, /(?<=class="goodsStatus">)[^<]+/ig),
+    }
   }
 
   private async getGoodsHtml(goodsCode: string, retryTimeout?: number): Promise<string> {
     const startDate = new Date().getTime();
     const res = await fetch(`http://cyg.changyou.com/details/?goodsCode=${goodsCode}`, { headers: this.getHeaders(goodsCode) });
-    const latency = new Date().getTime() - startDate;
     let html = await res.text();
-    const orderStatus = this.getOrderStatus(html);
-    if (isNaN(this.getGoodsInfo(html).remain) && !['已下单', '已下架'].includes(orderStatus)) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    const { remain: _remain, orderStatus } = this.getGoodsInfo(html);
+    this.latency = new Date().getTime() - new Date(res.headers.get('date') ?? startDate).getTime();
+
+    if (isNaN(_remain) && !['已下单', '已下架'].includes(orderStatus)) {
+      await new Promise(resolve => setTimeout(resolve, 100));
       return this.getGoodsHtml(goodsCode, retryTimeout);
     }
-    const remain = orderStatus === '公示中' ? this.getGoodsInfo(html).remain - (latency - latency % 2) / 2 : 0;
+    const remain = orderStatus === '公示中' ? _remain : 0;
     html = html.replace(/([\s\S]*data-remain=")([^"]+)("[\s\S]*)/g, `$1${remain}$3`);
     if (retryTimeout && remain - retryTimeout > 0) {
       await this.pending(remain - retryTimeout);
@@ -68,49 +71,61 @@ export class PayScript {
   private async pending(timeout: number) {
     const endDate = new Date().getTime() + timeout;
     if (isNaN(endDate) || endDate < 0) return;
-    return new Promise((resolve) => setInterval(() => new Date().getTime() >= endDate && resolve(null), 10));
+    return new Promise((resolve) => {
+      const si = setInterval(() => new Date().getTime() >= endDate && resolve(clearInterval(si)), 10);
+    });
   }
 
-  private async callPay(goodsCode: string, { remain: _remain }: any, orderStatus: string) {
-    let remain = _remain;
-    if ('公示中' === orderStatus) {
-      console.log('pay order time', new Date(new Date().getTime() + _remain).toLocaleTimeString());
+  private async callPay(goodsCode: string, index: number) {
+    let html = await this.getGoodsHtml(goodsCode);
+    let { remain, orderStatus } = this.getGoodsInfo(html);
+    if (['已下单', '已下架'].includes(orderStatus)) return console.log(orderStatus);
+    else if ('公示中' === orderStatus && remain > 0) {
+      console.log(`pay order time: ${index}`, new Date(new Date().getTime() + remain).toLocaleTimeString());
       while (remain > 60000) {
         remain = this.getGoodsInfo(await this.getGoodsHtml(goodsCode, remain > 180000 ? remain - 180000 : remain - 60000)).remain;
-        console.log(goodsCode, remain);
+        console.log(goodsCode, new Date(new Date().getTime() + remain).toLocaleTimeString(), remain);
       }
       remain > 30000 && await this.getGoodsHtml(goodsCode, 30000);
-      const html = await this.getGoodsHtml(goodsCode, 10000);
+      html = await this.getGoodsHtml(goodsCode, 10000);
       await this.pending(this.getGoodsInfo(html).remain);
     }
 
     // await this.stepFetch(`http://${this.host}/order/auth.json`, headers, goodsInfo);
-    const headers = this.getHeaders(goodsCode);
-    const body = this.getGoodsInfo(await this.getGoodsHtml(goodsCode));
+    const body = this.getGoodsInfo(html);
     try {
-      const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, headers, body);
-      console.log('end order', body, await res.json());
-    } catch (e) {
-      console.log(body, e);
+      console.log(`start order: ${index}`,new Date().getTime());
+      const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, this.getHeaders(goodsCode), body);
+      const json = await res.json();
+      if (json.code !== 200) throw new Error(`${json.code}: ${json.msg}`);
+      console.log(`end order: ${index}`, body, json);
+    } catch (e: any) {
+      console.log(`retry: ${index}`, body.orderStatus, e?.message);
+      this.callPay(goodsCode, index);
     }
   }
 
   @Get('/pay/:goodsCode')
   async pay(@Params('goodsCode') goodsCode: string, @Res() res: Response) {
-    const html = await this.getGoodsHtml(goodsCode);
+    let html = await this.getGoodsHtml(goodsCode);
     if (!this.mapping.has(goodsCode)) {
-      for (let i = 0; i < 10; i++) this.callPay(goodsCode, this.getGoodsInfo(html), this.getOrderStatus(html));
+      for (let i = 0; i < 10; i++) {
+        if (this.latency) await this.pending(this.latency);
+        this.callPay(goodsCode, i);
+      }
       this.mapping.set(goodsCode, 10);
     }
     res.end(html);
   }
 
-  @Middleware()
-  proxy(router: Router) {
-    const proxyOptions = { target: 'http://cyg.changyou.com', secure: true, changeOrigin: true };
-    const proxy = createProxyMiddleware('/', proxyOptions);
-    router.use('/gameServer.json', proxy);
-    router.use('/details/recommendList.json', proxy);
-    router.use('/ads', proxy);
+  createOptions() {
+    return {
+      on: { proxyReq: (proxyReq: ClientRequest) => proxyReq.setHeader('cookie', this.cookies) }
+    }
+  }
+
+  @HttpMiddleware()
+  proxy() {
+    return [{ host: 'http://cyg.changyou.com', proxyApi: ['*'], options: this.createOptions() }];
   }
 }
