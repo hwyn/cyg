@@ -2,15 +2,45 @@
 import { Controller, Get, Params, Res } from '@hwy-fm/server/controller';
 import { HttpMiddleware } from '@hwy-fm/server/http-proxy';
 import { Response } from 'express';
+import type { ClientRequest, IncomingMessage } from 'http';
 import fetch from 'node-fetch';
-import { ClientRequest } from 'http';
+import fs from 'fs';
+import path from 'path';
 
 @Controller()
 export class PayScript {
-  private latency: number = 100;
-  private mapping: Map<string, number> = new Map();
+  private latency: number = 0;
+  private cookies: string;
   private host = 'cyg.changyou.com';
-  private cookies = 'tgw_l7_route=0b0ad2afaa54120d3415ba55e7eb31f5; qrcodeid=c9a092e940e01713916da19785be1eda07825e63e9d1c63fa3d49327c880c0e9d37b3eb8a69de9a7f2fc98beed527ed9; CU=E0DAED4C40844557930AC0D1676FC83F';
+  private orderPayload: Map<string, Object[]> = new Map();
+  private mapping: Map<string, number> = new Map();
+  private cookiesField = path.join(process.cwd(), 'cookies.txt');
+
+  constructor() {
+    this.cookies = fs.existsSync(this.cookiesField) ? fs.readFileSync(this.cookiesField, { encoding: 'utf-8' }) : '';
+    fs.writeFileSync(path.join(process.cwd(), 'log.txt'), '');
+  }
+
+  log(...args: any[]) {
+    fs.appendFile(path.join(process.cwd(), 'log.txt'), args.map((item) => typeof item !== 'string' ? JSON.stringify(item) : item).join(' ') + '\n', () => { })
+  }
+
+  parseCookie(cookie: string) {
+    return cookie.split(';').reduce((obj: any, item: string) => {
+      const [name, value] = item.split('=');
+      return name ? Object.assign(obj, { [name]: value }) : obj;
+    }, {});
+  }
+
+  updateCookie(raw: { [k: string]: string[]; }) {
+    const setCookies = [...(raw['set-cookie'] || []), ...(raw['Set-Cookie'] || [])];
+    if (!setCookies.length) {
+      return;
+    }
+    const newCookie = Object.assign(this.parseCookie(this.cookies), this.parseCookie(setCookies.map((item) => item.split(';')[0] || '').join(';')));
+    this.cookies = Object.keys(newCookie).map((key) => key + '=' + newCookie[key]).join(';');
+    fs.writeFileSync(this.cookiesField, this.cookies, { encoding: 'utf-8' });
+  }
 
   private getHeaders(goodsCode: string) {
     return {
@@ -22,6 +52,16 @@ export class PayScript {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
     };
+  }
+
+  private addPayload(goodsCode: string, goodsInfo: object) {
+    const payloads = this.orderPayload.get(goodsCode) || [];
+    payloads.push({ ...goodsInfo, createDate: new Date().getTime() });
+    this.orderPayload.set(goodsCode, payloads);
+  }
+
+  private getPayload(goodsCode: string): object | undefined {
+    return (this.orderPayload.get(goodsCode) || []).pop();
   }
 
   private exec(str: string, rex: RegExp): string {
@@ -48,14 +88,15 @@ export class PayScript {
     const startDate = new Date().getTime();
     const res = await fetch(`http://cyg.changyou.com/details/?goodsCode=${goodsCode}`, { headers: this.getHeaders(goodsCode) });
     let html = await res.text();
-    const { remain: _remain, orderStatus } = this.getGoodsInfo(html);
-    this.latency = new Date().getTime() - new Date(res.headers.get('date') ?? startDate).getTime();
-
+    const { remain: _remain, orderStatus, ...payload } = this.getGoodsInfo(html);
+    this.updateCookie(res.headers.raw());
+    this.latency = new Date().getTime() - startDate;
     if (isNaN(_remain) && !['已下单', '已下架'].includes(orderStatus)) {
       await new Promise(resolve => setTimeout(resolve, 100));
       return this.getGoodsHtml(goodsCode, retryTimeout);
     }
     const remain = orderStatus === '公示中' ? _remain : 0;
+    this.addPayload(goodsCode, payload);
     html = html.replace(/([\s\S]*data-remain=")([^"]+)("[\s\S]*)/g, `$1${remain}$3`);
     if (retryTimeout && remain - retryTimeout > 0) {
       await this.pending(remain - retryTimeout);
@@ -76,33 +117,42 @@ export class PayScript {
     });
   }
 
+  private async startPay(goodsCode: string, index: number) {
+    const { createDate, ...payload } = this.getPayload(goodsCode) || {} as any;
+    if (!createDate || new Date().getTime() - createDate > 600000) {
+      this.log('The token has already been consumed');
+      return this.callPay(goodsCode, index);
+    }
+    try {
+      this.log(`start order: ${index}`, new Date().getTime());
+      const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, this.getHeaders(goodsCode), payload);
+      const json = await res.json();
+      if (json.code === 402) {
+        this.log('token date:', new Date().getTime() - createDate);
+        this.orderPayload.set(goodsCode, []);
+      }
+      if (json.code !== 200) throw new Error(`${json.code}: ${json.msg}`);
+      this.log(`end order: ${index}`, payload, json);
+    } catch (e: any) {
+      this.log(`retry: ${index}`, e?.message);
+      this.startPay(goodsCode, index)
+    }
+  }
+
   private async callPay(goodsCode: string, index: number) {
     let html = await this.getGoodsHtml(goodsCode);
     let { remain, orderStatus } = this.getGoodsInfo(html);
-    if (['已下单', '已下架'].includes(orderStatus)) return console.log(orderStatus);
+    if (['已下单', '已下架'].includes(orderStatus)) return this.log(orderStatus);
     else if ('公示中' === orderStatus && remain > 0) {
-      console.log(`pay order time: ${index}`, new Date(new Date().getTime() + remain).toLocaleTimeString());
-      while (remain > 60000) {
-        remain = this.getGoodsInfo(await this.getGoodsHtml(goodsCode, remain > 180000 ? remain - 180000 : remain - 60000)).remain;
-        console.log(goodsCode, new Date(new Date().getTime() + remain).toLocaleTimeString(), remain);
+      this.log(`pay order time: ${index}`, new Date(new Date().getTime() + remain).toLocaleTimeString());
+      while (remain > 5000) {
+        remain = this.getGoodsInfo(await this.getGoodsHtml(goodsCode, remain > 60000 ? remain - remain % 60000 : remain - 5000)).remain;
+        this.log(goodsCode, new Date(new Date().getTime() + remain).toLocaleTimeString(), remain);
       }
-      remain > 30000 && await this.getGoodsHtml(goodsCode, 30000);
-      html = await this.getGoodsHtml(goodsCode, 10000);
+      html = await this.getGoodsHtml(goodsCode, 2500);
       await this.pending(this.getGoodsInfo(html).remain);
     }
-
-    // await this.stepFetch(`http://${this.host}/order/auth.json`, headers, goodsInfo);
-    const body = this.getGoodsInfo(html);
-    try {
-      console.log(`start order: ${index}`,new Date().getTime());
-      const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, this.getHeaders(goodsCode), body);
-      const json = await res.json();
-      if (json.code !== 200) throw new Error(`${json.code}: ${json.msg}`);
-      console.log(`end order: ${index}`, body, json);
-    } catch (e: any) {
-      console.log(`retry: ${index}`, body.orderStatus, e?.message);
-      this.callPay(goodsCode, index);
-    }
+    this.startPay(goodsCode, index);
   }
 
   @Get('/pay/:goodsCode')
@@ -120,7 +170,10 @@ export class PayScript {
 
   createOptions() {
     return {
-      on: { proxyReq: (proxyReq: ClientRequest) => proxyReq.setHeader('cookie', this.cookies) }
+      on: {
+        proxyReq: (proxyReq: ClientRequest) => proxyReq.setHeader('cookie', this.cookies),
+        proxyRes: (proxyRes: IncomingMessage) => this.updateCookie(proxyRes.headers as { [k: string]: string[]; })
+      }
     }
   }
 
