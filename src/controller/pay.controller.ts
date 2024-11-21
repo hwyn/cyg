@@ -19,6 +19,17 @@ export class PayScript {
   constructor() {
     this.cookies = fs.existsSync(this.cookiesField) ? fs.readFileSync(this.cookiesField, { encoding: 'utf-8' }) : '';
     fs.writeFileSync(path.join(process.cwd(), 'log.txt'), '');
+    this.clearTokenScript();
+  }
+
+  clearTokenScript() {
+    setTimeout(() => {
+      const currentDate = new Date().getTime();
+      for (let [id, value] of this.orderPayload.entries()) {
+        this.orderPayload.set(id, value.filter(({ createDate }: any) => currentDate - createDate < 600000));
+      }
+      this.clearTokenScript();
+    }, 600000);
   }
 
   log(...args: any[]) {
