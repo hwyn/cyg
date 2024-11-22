@@ -9,22 +9,27 @@ import path from 'path';
 
 @Controller()
 export class PayScript {
-  private latency: number = 0;
   private cookies: string;
   private host = 'cyg.changyou.com';
+  private latency: number = 0;
+  private availableTimer = 3000;
   private orderPayload: Map<string, Object[]> = new Map();
+  private orderEndTimer: Map<string, number> = new Map();
+  private orderError: Map<string, Record<string, any>> = new Map();
   private mapping: Map<string, number> = new Map();
   private cookiesField = path.join(process.cwd(), 'cookies.txt');
+  private userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36';
 
   constructor() {
     this.cookies = fs.existsSync(this.cookiesField) ? fs.readFileSync(this.cookiesField, { encoding: 'utf-8' }) : '';
+    if (!fs.existsSync(path.join(process.cwd(), 'order.text'))) fs.writeFileSync(path.join(process.cwd(), 'order.text'), '');
     fs.writeFileSync(path.join(process.cwd(), 'log.txt'), '');
     this.clearTokenScript();
   }
 
   clearTokenScript() {
     setTimeout(() => {
-      const currentDate = new Date().getTime();
+      const currentDate = Date.now();
       for (let [id, value] of this.orderPayload.entries()) {
         this.orderPayload.set(id, value.filter(({ createDate }: any) => currentDate - createDate < 600000));
       }
@@ -33,7 +38,26 @@ export class PayScript {
   }
 
   log(...args: any[]) {
-    fs.appendFile(path.join(process.cwd(), 'log.txt'), args.map((item) => typeof item !== 'string' ? JSON.stringify(item) : item).join(' ') + '\n', () => { })
+    fs.appendFile(path.join(process.cwd(), 'log.txt'), this.parseDate(Date.now()) + ': ' + args.map((item) => typeof item !== 'string' ? JSON.stringify(item) : item).join(' ') + '\n', () => { })
+  }
+
+  parseDate(date: number) {
+    const _date = new Date(date);
+    return _date.toLocaleDateString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false // 使用 24 小时制
+    }) + '.' + (`00${_date.getMilliseconds()}`.slice(-3));
+  }
+
+  parseTime(date: number) {
+    const day = (date - date % 86400000) / 86400000;
+    const hour = ('0' + (date % 86400000 - date % 3600000) / 3600000).slice(-2);
+    const minute = ('0' + (date % 3600000 - date % 60000) / 60000).slice(-2);
+    const seconds = ('0' + (date % 60000 - date % 1000) / 1000).slice(-2);
+    const milliseconds = ('00' + date % 1000).slice(-3);
+    return `${day}天${hour}小时${minute}分${seconds}.${milliseconds}`
   }
 
   parseCookie(cookie: string) {
@@ -61,13 +85,13 @@ export class PayScript {
       Referer: `http://${this.host}/details/?goodsCode=${goodsCode}`,
       'X-Requested-With': 'XMLHttpRequest',
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
-    };
+      'User-Agent': this.userAgent
+    }
   }
 
   private addPayload(goodsCode: string, goodsInfo: object) {
     const payloads = this.orderPayload.get(goodsCode) || [];
-    payloads.push({ ...goodsInfo, createDate: new Date().getTime() });
+    payloads.push({ ...goodsInfo, createDate: Date.now() });
     this.orderPayload.set(goodsCode, payloads);
   }
 
@@ -83,7 +107,7 @@ export class PayScript {
     const remain = Number(this.exec(html, /(?<=data-remain=")[^"]+/ig));
     return {
       qt: 1,
-      remain: isNaN(remain) ? 0 : remain - this.latency,
+      remain: isNaN(remain) ? 0 : remain,
       gc: this.exec(html, /(?<=data-gc=")[^"]+/ig),
       pid: this.exec(html, /(?<=data-platformid=")[^"]+/ig),
       gid: this.exec(html, /(?<=data-gameid=")[^"]+/ig),
@@ -96,20 +120,24 @@ export class PayScript {
   }
 
   private async getGoodsHtml(goodsCode: string, retryTimeout?: number): Promise<string> {
-    const startDate = new Date().getTime();
-    const res = await fetch(`http://cyg.changyou.com/details/?goodsCode=${goodsCode}`, { headers: this.getHeaders(goodsCode) });
+    const startDate = Date.now();
+    let minEndTimer = this.orderEndTimer.get(goodsCode) || Infinity;
+    const res = await fetch(`http://${this.host}/details/?goodsCode=${goodsCode}`, { headers: this.getHeaders(goodsCode) });
     let html = await res.text();
+    const serverResDate = new Date(res.headers.get('date')!).getTime();
+    const latency = serverResDate - startDate;
     const { remain: _remain, orderStatus, ...payload } = this.getGoodsInfo(html);
+    const endTimer = serverResDate + (orderStatus === '公示中' ? _remain : 0);
     this.updateCookie(res.headers.raw());
-    this.latency = new Date().getTime() - startDate;
     if (isNaN(_remain) && !['已下单', '已下架'].includes(orderStatus)) {
       await new Promise(resolve => setTimeout(resolve, 100));
       return this.getGoodsHtml(goodsCode, retryTimeout);
     }
-    const remain = orderStatus === '公示中' ? _remain : 0;
     this.addPayload(goodsCode, payload);
-    html = html.replace(/([\s\S]*data-remain=")([^"]+)("[\s\S]*)/g, `$1${remain}$3`);
-    if (retryTimeout && remain - retryTimeout > 0) {
+    this.latency = this.latency < latency ? latency : this.latency;
+    this.orderEndTimer.set(goodsCode, minEndTimer = minEndTimer > endTimer ? endTimer : minEndTimer);
+    const remain = minEndTimer - Date.now();
+    if (retryTimeout && remain > 0) {
       await this.pending(remain - retryTimeout);
       html = await this.getGoodsHtml(goodsCode);
     }
@@ -121,57 +149,69 @@ export class PayScript {
   }
 
   private async pending(timeout: number) {
-    const endDate = new Date().getTime() + timeout;
+    const endDate = Date.now() + timeout;
     if (isNaN(endDate) || endDate < 0) return;
     return new Promise((resolve) => {
-      const si = setInterval(() => new Date().getTime() >= endDate && resolve(clearInterval(si)), 10);
+      const si = setInterval(() => Date.now() >= endDate && resolve(clearInterval(si)), 10);
     });
   }
 
-  private async startPay(goodsCode: string, index: number) {
-    const { createDate, ...payload } = this.getPayload(goodsCode) || {} as any;
-    if (!createDate || new Date().getTime() - createDate > 600000) {
-      this.log('The token has already been consumed');
-      return this.callPay(goodsCode, index);
-    }
+  private async asyncStartPay(goodsCode: string, payload: object, index: number) {
     try {
-      this.log(`start order: ${index}`, new Date().getTime());
+      const startDate = Date.now();
+      this.log(`start pay ${index}:`, this.parseDate(startDate));
       const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, this.getHeaders(goodsCode), payload);
       const json = await res.json();
-      if (json.code === 402) {
-        this.log('token date:', new Date().getTime() - createDate);
-        this.orderPayload.set(goodsCode, []);
-      }
-      if (json.code !== 200) throw new Error(`${json.code}: ${json.msg}`);
-      this.log(`end order: ${index}`, payload, json);
+      if ([402, 1426].includes(json.code)) this.orderPayload.set(goodsCode, []);
+      if (json.code !== 200) {
+        this.orderError.set(goodsCode, json);
+        throw new Error(`${json.code}: ${json.msg}`);
+      };
+      fs.appendFileSync(path.join(process.cwd(), 'order.text'), `deadline: ${this.parseDate(this.orderEndTimer.get(goodsCode)!)} open: ${this.parseDate(startDate)} finish: ${this.parseDate(new Date(res.headers.get('date')!).getTime())}\n`)
     } catch (e: any) {
-      this.log(`retry: ${index}`, e?.message);
-      this.startPay(goodsCode, index)
+      this.log(`retry pay ${index}:`, e?.message);
     }
+  }
+
+  private async startPay(goodsCode: string, index: number) {
+    const error = this.orderError.get(goodsCode);
+    const { createDate, ...payload } = this.getPayload(goodsCode) || {} as any;
+
+    if (error && [200, 401, 1426, 1422].includes(error.code)) return;
+    if (!createDate || Date.now() - createDate > 600000) return this.callPay(goodsCode, index);
+
+    this.asyncStartPay(goodsCode, payload, index);
+    setTimeout(() => this.startPay(goodsCode, index), 100);
   }
 
   private async callPay(goodsCode: string, index: number) {
     let html = await this.getGoodsHtml(goodsCode);
-    let { remain, orderStatus } = this.getGoodsInfo(html);
-    if (['已下单', '已下架'].includes(orderStatus)) return this.log(orderStatus);
-    else if ('公示中' === orderStatus && remain > 0) {
-      this.log(`pay order time: ${index}`, new Date(new Date().getTime() + remain).toLocaleTimeString());
+    let remain = this.orderEndTimer.get(goodsCode)! - Date.now();
+    let { orderStatus } = this.getGoodsInfo(html);
+    if (['已下单', '已下架'].includes(orderStatus)) {
+      this.orderPayload.clear();
+      return this.log(orderStatus);
+    } else if ('公示中' === orderStatus && remain > 0) {
+      this.log(`pay order time: ${index}:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
       while (remain > 5000) {
-        remain = this.getGoodsInfo(await this.getGoodsHtml(goodsCode, remain > 60000 ? remain - remain % 60000 : remain - 5000)).remain;
-        this.log(goodsCode, new Date(new Date().getTime() + remain).toLocaleTimeString(), remain);
+        await this.getGoodsHtml(goodsCode, remain > 60000 ? remain - remain % 60000 : remain - 5000);
+        remain = this.orderEndTimer.get(goodsCode)! - Date.now();
+        this.log(`pay order time: ${index}:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
       }
-      html = await this.getGoodsHtml(goodsCode, 2500);
-      await this.pending(this.getGoodsInfo(html).remain);
+      html = remain > 2500 ? await this.getGoodsHtml(goodsCode, 2500) : html;
+      await this.pending((this.orderEndTimer.get(goodsCode)! + this.availableTimer - this.latency + 10 * index) - Date.now());
     }
     this.startPay(goodsCode, index);
   }
 
   @Get('/pay/:goodsCode')
   async pay(@Params('goodsCode') goodsCode: string, @Res() res: Response) {
+    const start = Date.now();
     let html = await this.getGoodsHtml(goodsCode);
+    const latency = Date.now() - start;
     if (!this.mapping.has(goodsCode)) {
       for (let i = 0; i < 10; i++) {
-        if (this.latency) await this.pending(this.latency);
+        await this.pending(latency);
         this.callPay(goodsCode, i);
       }
       this.mapping.set(goodsCode, 10);
@@ -190,6 +230,6 @@ export class PayScript {
 
   @HttpMiddleware()
   proxy() {
-    return [{ host: 'http://cyg.changyou.com', proxyApi: ['*'], options: this.createOptions() }];
+    return [{ host: `http://${this.host}`, proxyApi: ['*'], options: this.createOptions() }];
   }
 }
