@@ -156,14 +156,19 @@ export class PayScript {
     });
   }
 
+  private checkRetry(goodsCode: string) {
+    const error = this.orderError.get(goodsCode);
+    return ![200, 401, 1426, 1422, 'invalid json'].includes(error?.code);
+  }
+
   private async asyncStartPay(goodsCode: string, payload: object, index: number, createDate: number) {
     try {
       const startDate = Date.now();
       this.log(`pay order start ${index}:`, this.parseDate(startDate));
       const res = await this.stepFetch(`http://${this.host}/order/confirmBuy.json`, this.getHeaders(goodsCode), payload);
       const json = await res.json();
-      this.orderError.set(goodsCode, json);
       if ([402, 1426].includes(json.code)) this.orderPayload.set(goodsCode, []);
+      if (this.checkRetry(goodsCode)) this.orderError.set(goodsCode, json);
       if (json.code !== 200) {
         throw new Error(`${json.code}: ${json.msg}`);
       };
@@ -180,10 +185,9 @@ export class PayScript {
 
   private async startPay(goodsCode: string, index: number) {
     const startDate = Date.now();
-    const error = this.orderError.get(goodsCode);
     const { createDate, ...payload } = this.getPayload(goodsCode) || {} as any;
 
-    if (error && [200, 401, 1426, 1422, 'invalid json'].includes(error.code)) return;
+    if (!this.checkRetry(goodsCode)) return;
     if (!createDate || Date.now() - createDate > 600000) return this.callPay(goodsCode, index);
     this.getGoodsHtml(goodsCode);
     this.asyncStartPay(goodsCode, payload, index, createDate);
@@ -200,7 +204,7 @@ export class PayScript {
     } else if ('公示中' === orderStatus && remain > 0) {
       this.log(`pay order time ${index}:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
       while (remain > 5000) {
-        await this.getGoodsHtml(goodsCode, remain > 5000 ? remain - remain % 5000 : remain - 500);
+        await this.getGoodsHtml(goodsCode, remain > 5000 ? remain - remain % (remain > 300000 ? 300000 : 5000) : remain - 500);
         remain = this.orderEndTimer.get(goodsCode)! - Date.now();
         this.log(`pay order time ${index}:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
       }
