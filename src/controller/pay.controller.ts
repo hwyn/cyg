@@ -206,11 +206,10 @@ export class PayScript {
       return this.log(orderStatus);
     } else if ('公示中' === orderStatus && remain > 0) {
       this.log(`pay order time:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
-      while (remain > this.latency * 3) {
+      while (remain > this.latency * 2) {
         await this.getGoodsHtml(goodsCode, remain > 60000 ? remain - remain % (remain > 600000 ? 300000 : 5000) : remain - 250);
         remain = this.orderEndTimer.get(goodsCode)! - Date.now();
         this.log(`pay order time:`, this.parseTime(remain), this.parseDate(this.orderEndTimer.get(goodsCode)!));
-        console.log(this.latency);
       }
       await this.pending(this.orderEndTimer.get(goodsCode)! + this.availableTimer - this.latency - Date.now());
     }
