@@ -5,6 +5,7 @@
     "outDir": "dist",
     "target": "ES6",
     "module": "commonjs",
+    "jsx": "preserve",
     "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,

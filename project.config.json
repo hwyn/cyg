@@ -22,6 +22,21 @@
             "watchFile": [ "src" ]
           }
         }
+      },
+      "client": {
+        "build": {
+          "outputPath": "client",
+          "options": {
+            "entry": {
+              "record": ["./record/index.ts"]
+            },
+            "tsConfig": "tsconfig.app.json",
+            "sourceMap": "inline-source-map"
+          },
+          "configurations": {
+            "sourceMap": true
+          }
+        }
       }
     }
   }
