@@ -28,7 +28,8 @@
           "outputPath": "client",
           "options": {
             "entry": {
-              "record": ["./record/index.ts"]
+              "record": ["./record/micro.ts"],
+              "main": ["./record/index.ts"]
             },
             "tsConfig": "tsconfig.app.json",
             "sourceMap": "inline-source-map"

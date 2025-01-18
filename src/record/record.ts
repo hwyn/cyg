@@ -1,17 +1,21 @@
 import { ApplicationPlugin, Input } from '@hwy-fm/csr';
+import { Subject } from 'rxjs';
+
+import { _document as document } from './utility';
 
 @ApplicationPlugin()
 export class Record {
-  private status = false;
+  private _status = false;
   private record: any[] = [];
   private startDate: number;
   private active: any[] = [];
   private retryCount = 30;
   private inputEvent = ['keydown', 'keyup', 'input', 'blur', 'focus', 'mouseup', 'mousedown', 'click'];
   private eventKeys = ['code', 'key', 'keyCode', 'ctrlKey', 'charCode', 'altKey', 'metaKey', 'repeat', 'shiftKey', 'which', 'data'];
-  @Input('record.skipSelector') private skipSelector: RegExp[] = [];
-  @Input('record.ignoreSelector') private ignoreSelector: string[] = [];
-  @Input('record.loadingSelector') private loadingSelector: string[] = [];
+  public runComplete = new Subject();
+  @Input('skipSelector') private skipSelector: RegExp[] = [];
+  @Input('ignoreSelector') private ignoreSelector: string[] = [];
+  @Input('loadingSelector') private loadingSelector: string[] = [];
 
   private getXmlPath(dom: HTMLElement) {
     const tagList = [];
@@ -54,7 +58,7 @@ export class Record {
   private factoryAddEvent(dom: HTMLElement | Document | Window, useCapture = false, check?: (event: Event) => boolean) {
     return (type: string, listener: any, _useCapture = useCapture, _check = check) => {
       const fn = (event: Event) => {
-        if (!this.status || this.ignoreSelector.includes((event.target as HTMLElement)?.id || '') || _check && !_check(event)) return;
+        if (!this.status || this.ignoreSelector.includes(((event.target as HTMLElement)?.tagName || '').toLocaleLowerCase()) || _check && !_check(event)) return;
         listener(event);
       }
       dom.addEventListener(type, fn, _useCapture);
@@ -165,7 +169,8 @@ export class Record {
   run(list: any[], retry = this.retryCount, isPending?: boolean) {
     let dom;
     const item = list[0];
-    if (!item || retry < 0) return retry < 0 && console.log(item);
+    if (!item) this.runComplete.next(true);
+    if (!item || retry < 0) return retry < 0 && this.runComplete.next(item);
     if (this.loading()) return this.setTimeout(() => this.run(list, retry), 200);
     if (this.skip(dom = document.querySelector(item.dom), item, retry)) return this.next(list, 0);
     if (this.retry(dom, item)) return this.setTimeout(() => this.run(list, --retry), 500);
@@ -197,13 +202,12 @@ export class Record {
   }
 
   start() {
-    this.record = [];
-    this.status = true;
+    this._status = true;
     this.startDate = Date.now();
   }
 
   stop() {
-    this.status = false;
+    this._status = false;
     this.clearMonitor(0);
   }
 
@@ -211,7 +215,15 @@ export class Record {
     return this.record;
   }
 
+  clearRecord() {
+    this.record = [];
+  }
+
   setRecord(list: any[]) {
     this.record = list;
+  }
+
+  get status() {
+    return this._status;
   }
 }
