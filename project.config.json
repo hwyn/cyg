@@ -3,24 +3,98 @@
   "sourceRoot": "src",
   "outputRoot": "dist",
   "architect": {
-    "platform":{
+    "platform": {
       "server": {
         "build": {
           "outputPath": "./",
           "options": {
             "entry": [
+              "electron.plugin.ts",
               "controller/index.ts",
               "application.ts"
             ],
-            "assets": [ "resources" ],
+            "assets": [
+              "resources"
+            ],
             "tsConfig": "tsconfig.json"
+          }
+        },
+        "electron": {
+          "configurations": {
+            "electron": true
           }
         },
         "development": {
           "configurations": {
             "hotContext": "server.context.js",
-            "watchFile": [ "src" ]
+            "watchFile": "src"
           }
+        }
+      },
+      "dll": {
+        "prod": {
+          "outputPath": "../chrome-extension",
+          "options": {
+            "entry": {
+              "di": [
+                "@hwy-fm/di"
+              ],
+              "record": [
+                "lodash",
+                "html2canvas",
+
+                "@hwy-fm/csr/token",
+                "@hwy-fm/csr/platform",
+                "@hwy-fm/csr/providers/app-context",
+
+                "@hwy-fm/core/token",
+                "@hwy-fm/core/utility",
+                "@hwy-fm/core/platform",
+                "@hwy-fm/core/providers/app-context",
+                "@hwy-fm/core/common/http"
+              ]
+            },
+            "tsConfig": "tsconfig.app.json"
+          },
+          "configurations": {
+            "manifestDll": [
+              "../chrome-extension/manifest/dll-di-manifest.json"
+            ]
+          }
+        },
+        "electron": {
+          "notExistence": true
+        }
+      },
+      "client": {
+        "build": {
+          "outputPath": "../chrome-extension",
+          "options": {
+            "entry": {
+              "main": ["./record/index.ts"],
+              "record": ["./record/micro.ts"],
+              "timeout": ["./record/proxy-timeout.ts", "./record/automation/automation.message.ts"]
+            },
+            "tsConfig": "tsconfig.app.json",
+            "sourceMap": "inline-source-map"
+          },
+          "configurations": {
+            "sourceMap": true
+          }
+        },
+        "prod": {
+          "configurations": {
+            "manifestDll": [
+              "../chrome-extension/manifest/dll-di-manifest.json",
+              "../chrome-extension/manifest/dll-record-manifest.json"
+            ]
+          }
+        },
+        "development": {
+          "outputPath": "client"
+        },
+        "electron": {
+          "notExistence": true
         }
       }
     }

@@ -1,1 +1,4 @@
-port: 4000
+port: 3001
+
+chrome:
+  win32: C:\Program Files\Google\Chrome\Application\chrome.exe

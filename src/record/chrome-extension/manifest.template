@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "My Extension for All Pages",
+  "version": "1.0",
+  "description": "An example extension that runs on all pages.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "world": "MAIN",
+      "matches": ["<all_urls>"],
+      "run_at": "document_start",
+      "js": {{timeout_scripts}}
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": {{content_scripts}}
+    }
+  ]
+}

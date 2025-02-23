@@ -1,0 +1,46 @@
+!function () {
+  let initStyle = '';
+  let initHtml = '';
+  function createHead() {
+    const head = document.createElement('div');
+    head.setAttribute('data-app', 'head');
+    head.innerHTML = initStyle;
+    return head;
+  }
+
+  function createBody() {
+    const body = document.createElement('div');
+    body.setAttribute('data-app', 'body');
+    body.innerHTML = initHtml;
+    return body;
+  }
+
+  function appendStyleNode(container) {
+    const beforeNode = container.firstChild;
+    {{linkToStyles}}.forEach(function(styleText) {
+      const style = document.createElement('style');
+      style.appendChild(document.createTextNode(styleText));
+      container.insertBefore(style, beforeNode);
+    });
+  }
+
+  function createShadow(container) {
+    const shadow = container.attachShadow({ mode: 'open' });
+    const head = createHead();
+    shadow.appendChild(head);
+    shadow.appendChild(createBody());
+    appendStyleNode(head);
+    initStyle = '';
+    initHtml = '';
+    return container;
+  }
+
+  window.chromeCache = {
+    recordConfig: {
+      pendingSelector: ['app-loading[1]>div[1]'],
+      skipSelector: [/cpos-file-upload[^>]+([^\[]+\[[^>]+>){4}mat-icon\[.*/]
+    },
+    createShadow: createShadow,
+    staticAssets: {{staticAssets}}
+  }
+}();
