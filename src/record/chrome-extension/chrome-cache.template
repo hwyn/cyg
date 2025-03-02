@@ -35,10 +35,23 @@
     return container;
   }
 
+  let request = [];
+  chrome.runtime.onMessage.addListener(({ type, details }) => {
+    if (details.type !== 'script') return;
+    switch (type) {
+      case '__record__request__start__': request.push(details.requestId); break;
+      case '__record__request__end__':
+      case '__record__request__error__': request = request.filter((id) => details.requestId !== id);
+    }
+  });
+
   window.chromeCache = {
     recordConfig: {
-      pendingSelector: ['app-loading[1]>div[1]'],
-      skipSelector: [/cpos-file-upload[^>]+([^\[]+\[[^>]+>){4}mat-icon\[.*/]
+      scroll: false,
+      screenshot: true,
+      fullPageScreen: true,
+      openRequestProxy: true,
+      input: { pending: () => !!request.length }
     },
     createShadow: createShadow,
     staticAssets: {{staticAssets}}

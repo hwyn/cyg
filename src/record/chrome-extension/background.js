@@ -104,13 +104,27 @@ function factoryRoute(url, { mapping }) {
   }
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  const { url, params } = request;
+function createWebRequestListener(method, type) {
+  chrome.webRequest[method].addListener((details) => {
+    if (details.tabId < 0) return;
+    chrome.tabs.sendMessage(details.tabId, { type, details }, () => !!chrome.runtime.lastError);
+  }, { urls: ["<all_urls>"] });
+}
+
+createWebRequestListener('onBeforeRequest', '__record__request__start__');
+createWebRequestListener('onCompleted', '__record__request__end__');
+createWebRequestListener('onErrorOccurred', '__record__request__error__');
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  const { url, params, isAutomation } = request;
   // openDB().then((db) => db.deleteObjectStore('myStore'));
-  // fetch('http://127.0.0.1:3001' + url, params).then((res) => res.json()).then((res) => sendResponse(res));
-  openDB().then((db) => findData(db).then((data) => {
-    const result = factoryRoute(url, data)(params.body ? JSON.parse(params.body) : params.body);
-    return update(db, data).then(() => sendResponse(result));
-  }));
+  if (isAutomation) {
+    fetch('http://127.0.0.1:3001' + url, params).then((res) => res.json()).then((res) => sendResponse(res));
+  } else {
+    openDB().then((db) => findData(db).then((data) => {
+      const result = factoryRoute(url, data)(params.body ? JSON.parse(params.body) : params.body);
+      return update(db, data).then(() => sendResponse(result));
+    }));
+  }
   return true;
 });

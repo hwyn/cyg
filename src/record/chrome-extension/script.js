@@ -20,7 +20,7 @@ const funNames = [];
 const jsNames = [];
 staticAssets.js.forEach((js) => {
   const source = formatSourceCode(fs.readFileSync(path.join(chromeOutput, js), 'utf-8'));
-  const funName = `__symbol__${microName.replace(/[\s|-]+/g, '')}_45757`;
+  const funName = `__symbol__${microName.replace(/[\s|-]+/g, '__')}__`;
   const jsName = js.replace(/([^\.]+).js$/, 'extension.$1.js');
   fs.writeFileSync(path.join(chromeOutput, jsName), `window.${funName}=function(shadBox, microStore, fetchCacheData){${source}}`);
   funNames.push(funName);
