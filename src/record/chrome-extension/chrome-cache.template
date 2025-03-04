@@ -1,23 +1,20 @@
 !function () {
-  let initStyle = '';
-  let initHtml = '';
+  const linkToStyles = {{linkToStyles}};
   function createHead() {
     const head = document.createElement('div');
     head.setAttribute('data-app', 'head');
-    head.innerHTML = initStyle;
     return head;
   }
 
   function createBody() {
     const body = document.createElement('div');
     body.setAttribute('data-app', 'body');
-    body.innerHTML = initHtml;
     return body;
   }
 
   function appendStyleNode(container) {
     const beforeNode = container.firstChild;
-    {{linkToStyles}}.forEach(function(styleText) {
+    linkToStyles.forEach(function (styleText) {
       const style = document.createElement('style');
       style.appendChild(document.createTextNode(styleText));
       container.insertBefore(style, beforeNode);
@@ -30,28 +27,31 @@
     shadow.appendChild(head);
     shadow.appendChild(createBody());
     appendStyleNode(head);
-    initStyle = '';
-    initHtml = '';
     return container;
   }
 
+  let st;
   let request = [];
+  let requestCount = 0;
   chrome.runtime.onMessage.addListener(({ type, details }) => {
-    if (details.type !== 'script') return;
+    if (!['xmlhttprequest', 'fetch', 'script'].includes(details.type)) return;
     switch (type) {
-      case '__record__request__start__': request.push(details.requestId); break;
+      case '__record__request__start__': request.push(details.requestId); requestCount++; break;
       case '__record__request__end__':
       case '__record__request__error__': request = request.filter((id) => details.requestId !== id);
     }
+    if (st) clearTimeout(st);
+    st = setTimeout(() => requestCount = request.length, 100);
   });
 
   window.chromeCache = {
     recordConfig: {
+      monitorTimer: -1,
       scroll: false,
-      screenshot: true,
-      fullPageScreen: true,
-      openRequestProxy: true,
-      input: { pending: () => !!request.length }
+      screenshot: false,
+      fullPageScreen: false,
+      openRequestProxy: false,
+      input: { pending: () => requestCount !== 0 }
     },
     createShadow: createShadow,
     staticAssets: {{staticAssets}}

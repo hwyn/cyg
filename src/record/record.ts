@@ -22,10 +22,10 @@ interface ActiveOptions {
 
 @ApplicationPlugin()
 export class Record {
-  private startDate: number;
-  private active: any[] = [];
   private retryCount = 30;
-  private record: RecordList = this.createRecordList();
+  private active: any[] = [];
+  private startDate: number = Date.now();
+  private record = this.createRecordList();
   private inputEvent = ['keydown', 'keyup', 'input', 'blur', 'focus', 'mouseup', 'mousedown', 'click'];
   private eventKeys = ['code', 'key', 'keyCode', 'ctrlKey', 'charCode', 'altKey', 'metaKey', 'repeat', 'shiftKey', 'which', 'data'];
   private mouseKeys = ['offsetX', 'offsetY', 'buttons', 'isPrimary'];
@@ -37,6 +37,7 @@ export class Record {
   @Input('scroll') scroll: boolean;
   @Input('quicken') quicken: number;
   @Input('screenshot') screenshot: boolean;
+  @Input('monitorTimer') monitorTimer: number;
   @Input('openRequestProxy') openRequestProxy: boolean;
   @Input('scrollSelector') scrollSelector: RegExp[] = [];
   @Input('shadowBodySelector') shadowBodySelector: string;
@@ -112,6 +113,17 @@ export class Record {
     return document.contains(target) || shadowBody.contains(target);
   }
 
+  private isHidden(xmlPath: string) {
+    const element = this.querySelector(xmlPath) as HTMLElement;
+    if (!element) return true;
+
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+
+    const clientRect = element.getBoundingClientRect();
+    return clientRect.width === 0 || clientRect.height === 0;
+  }
+
   private isElementOutOfViewport(element: Element) {
     const rect = element.getBoundingClientRect();
     const maxBottom = window.innerHeight - 150;
@@ -131,7 +143,7 @@ export class Record {
   }
 
   private checkUseScroll(dom: HTMLElement) {
-    return this.scroll || !!dom.tagName && this.checkIsXmlPath(this.scrollSelector, this.getXmlPath(dom));
+    return this.scroll || !!dom.tagName && !!this.scrollSelector.length && this.checkIsXmlPath(this.scrollSelector, this.getXmlPath(dom));
   }
 
   private factoryAddEvent(dom: EventHTML | EventHTML[], useCapture = false, check?: (event: Event) => boolean) {
@@ -251,7 +263,12 @@ export class Record {
   }
 
   private pending(item: any, list: RecordList) {
-    return this.pendingSelector.some((selector) => !!this.querySelector(selector)) || this.pendingInput(item, list, this) || document.readyState !== 'complete';
+    const xmlPath = item.dom;
+    return (
+      document.readyState !== 'complete' ||
+      this.pendingSelector.some((selector) => xmlPath.indexOf(selector) === -1 && !this.isHidden(selector)) ||
+      this.pendingInput(item, list, this)
+    );
   }
 
   private retry(dom: HTMLElement | null, item: any, list: RecordList) {
@@ -260,8 +277,9 @@ export class Record {
   }
 
   private skip(dom: HTMLElement, item: any, retry: number, list: RecordList) {
-    if (this.checkIsXmlPath(this.pendingSelector, item.dom) || this.skipInput(item, list, this)) return true;
-    return dom ? this.checkIsXmlPath(this.skipSelector, item.dom) : 'mousedown' !== item.type && retry < this.retryCount;
+    if (this.skipInput(item, list, this)) return true;
+    if (dom) return this.checkIsXmlPath(this.skipSelector, item.dom);
+    return this.checkIsXmlPath(this.pendingSelector, item.dom) || 'mousedown' !== item.type && retry < this.retryCount;
   }
 
   protected next(list: RecordList, timer: number = Infinity) {
@@ -333,9 +351,9 @@ export class Record {
     addEventListener('focusin', ({ target }) => this.addMonitor({ target }), true, ({ target }: any) => inputTag.includes(target.tagName));
     addEventListener('click', ({ target }) => this.addMonitor({ target, existEvent: ['change'] }), false, ({ target }: any) => this.checkFileInput(target));
     addEventListener('scroll', ({ target }) => this.addMonitor({ target, existEvent: ['scroll'] },), true, ({ target }: any) => this.screenshot || this.checkUseScroll(target));
-    this.createActive({ target: document.body, existEvent: ['mouseup', 'click', 'keydown', 'keyup'] });
     this.extension.monitor(addEventListener, this);
-    this.message.send('__record__timeout__config__', this.openRequestProxy);
+    this.createActive({ target: document.body, existEvent: ['mouseup', 'click', 'keydown', 'keyup'] });
+    this.message.send('__record__timeout__config__', { monitorTimer: this.monitorTimer, openRequestProxy: this.openRequestProxy });
   }
 
   start() {

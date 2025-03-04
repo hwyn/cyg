@@ -9,7 +9,7 @@ const _clearTimeout = window.clearTimeout;
 window.__record__symbol__setTimeout__ = _setTimeout;
 
 class ProxyTimeout {
-  protected monitorTimer = 700;
+  protected monitorTimer = -1;
   protected openRequestProxy = false;
   protected timeoutPending: any[] = [];
   protected resourcePending: number = 0;
@@ -21,7 +21,10 @@ class ProxyTimeout {
     this.proxyXMLHttpRequest();
     this.proxyAppendScript();
     message.receive('__record__timeout__pending__', async (endDate: number) => this.loopTimeoutPending(endDate));
-    message.receive('__record__timeout__config__', async (openRequestProxy: boolean) => this.openRequestProxy = openRequestProxy);
+    message.receive('__record__timeout__config__', async ({ openRequestProxy, monitorTimer }) => {
+      this.monitorTimer = monitorTimer;
+      this.openRequestProxy = openRequestProxy;
+    });
   }
 
   protected async loopTimeoutPending(endDate: number): Promise<number> {
@@ -59,7 +62,6 @@ class ProxyTimeout {
       if (needAdd) _this.timeoutPending.push({ st, date: timer, timer: Date.now() + timer });
       return st;
     }
-    return this;
   }
 
   protected addResourceEventListener(ele: any, eventTypes: string[]) {
