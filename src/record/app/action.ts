@@ -82,7 +82,7 @@ export class Action {
   }
 
   protected automationRun(list?: any[]) {
-    this.record.run(this.record.createRecordList(list));
+    this.record.run(this.runList = this.record.createRecordList(list));
     this.statusChange.next(2);
   }
 
@@ -95,7 +95,7 @@ export class Action {
   }
 
   public end() {
-    this.execName = void(0);
+    this.execName = void (0);
     this.runList.splice(0, this.runList.length);
     this.automation.updateInfo('end');
     this.statusChange.next(0);

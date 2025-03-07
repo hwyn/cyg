@@ -14,9 +14,10 @@ export class AutomationMessage {
 
   addEventListener() {
     const message = Injector.create([Message]).get(Message);
-    message.receive('__record__automation__info__', (data: any) => this.automation(data));
     message.receive('__record__check__automation__', () => !!this.automation);
-    message.receive('__record__status__init__', async () => ({ isAutomation: true, ... await this.automation({ action: 'get' }) }));
+    if (this.automation) {
+      message.receive('__record__automation__info__', (data: any) => this.automation(data));
+    }
   }
 }
 

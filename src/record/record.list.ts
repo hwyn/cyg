@@ -6,7 +6,8 @@ export class RecordList<T = any> {
   constructor(private list: any[] = []) { }
 
   push<T>(item: T) {
-    this.automation.updateInfo('push', item);
+    const { ele, ...data } = item as T & { ele: any };
+    this.automation.updateInfo('push', data);
     return this.list.push(item);
   }
 
@@ -29,7 +30,8 @@ export class RecordList<T = any> {
   }
 
   unshift<T>(item: T) {
-    this.automation.updateInfo('unshift', item);
+    const { ele, ...data } = item as T & { ele: any };
+    this.automation.updateInfo('unshift', data);
     return this.list.unshift(item);
   }
 

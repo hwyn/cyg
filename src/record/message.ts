@@ -18,7 +18,7 @@ export class Message {
     if (!needReturn) return window.postMessage({ type, data }) as T;
 
     const _type = Math.random().toString().replace('.', '');
-    return await new Promise((resolve) => {
+    return new Promise((resolve) => {
       const listener = ({ data: { type: returnType, data } }: MessageEvent) => {
         if (returnType !== _type) return;
         window.removeEventListener('message', listener);

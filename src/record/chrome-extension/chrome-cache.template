@@ -1,23 +1,20 @@
 !function () {
-  let initStyle = '';
-  let initHtml = '';
+  const linkToStyles = {{linkToStyles}};
   function createHead() {
     const head = document.createElement('div');
     head.setAttribute('data-app', 'head');
-    head.innerHTML = initStyle;
     return head;
   }
 
   function createBody() {
     const body = document.createElement('div');
     body.setAttribute('data-app', 'body');
-    body.innerHTML = initHtml;
     return body;
   }
 
   function appendStyleNode(container) {
     const beforeNode = container.firstChild;
-    {{linkToStyles}}.forEach(function(styleText) {
+    linkToStyles.forEach(function (styleText) {
       const style = document.createElement('style');
       style.appendChild(document.createTextNode(styleText));
       container.insertBefore(style, beforeNode);
@@ -30,15 +27,34 @@
     shadow.appendChild(head);
     shadow.appendChild(createBody());
     appendStyleNode(head);
-    initStyle = '';
-    initHtml = '';
     return container;
   }
 
+  const tryRequest = function () {
+    let st;
+    let request = [];
+    let requestCount = 0;
+    chrome.runtime.onMessage.addListener(({ type, data: { action, details } = {} }) => {
+      if (type !== '__record__listener__request__' || !details || !['xmlhttprequest', 'fetch', 'script'].includes(details.type)) return;
+      switch (action) {
+        case 'start': request.push(details.requestId); requestCount++; break;
+        case 'end':
+        case 'error': request = request.filter((id) => details.requestId !== id);
+      }
+      if (st) clearTimeout(st);
+      st = setTimeout(() => requestCount = request.length, 50);
+    });
+    return () => requestCount !== 0;
+  }();
+
   window.chromeCache = {
     recordConfig: {
-      pendingSelector: ['app-loading[1]>div[1]'],
-      skipSelector: [/cpos-file-upload[^>]+([^\[]+\[[^>]+>){4}mat-icon\[.*/]
+      monitorTimer: -1,
+      scroll: false,
+      screenshot: false,
+      fullPageScreen: false,
+      openRequestProxy: false,
+      input: { pending: tryRequest }
     },
     createShadow: createShadow,
     staticAssets: {{staticAssets}}

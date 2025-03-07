@@ -25,7 +25,7 @@ export class ClientApplication {
     this.render();
     new MutationObserver((mutationsList) => mutationsList.map((item) => Array.from(item.removedNodes))
       .flat(1)
-      .filter((removedNode: any) => removedNode?.tagName.toLowerCase() === `${this.recordName}-tag`)
+      .filter((removedNode: any) => removedNode?.tagName?.toLowerCase() === `${this.recordName}-tag`)
       .forEach(() => this.render())
     ).observe(document.documentElement.querySelector('body')!, { childList: true });
   }

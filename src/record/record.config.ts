@@ -5,12 +5,15 @@ const chromeConfig = (typeof chromeCache !== 'undefined' && chromeCache.recordCo
 const defaultConfig = {
   quicken: 50,
   scroll: false,
-  screenshot: true,
+  screenshot: false,
+  fullPageScreen: false,
+  openRequestProxy: false,
+  monitorTimer: -1,
   shadowBodySelector,
   skipSelector: [],
   scrollSelector: [],
   pendingSelector: [`${shadowBodySelector}>div.record-full-screen`],
-  ignoreSelector: ['record-root-tag', `${shadowBodySelector}>div[1]>div[1]`]
+  ignoreSelector: [`${shadowBodySelector}>div[1]>div[1]`, 'record-root-tag']
 };
 
 export const recordConfig = mergeWith(defaultConfig, chromeConfig, (arg1: any, arg2: any) => {
